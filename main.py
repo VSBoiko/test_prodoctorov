@@ -26,15 +26,37 @@ def get_json_from_url(url: str) -> list:
 
 
 def main():
-    logging.info("Начало работы скрипта")
+    logging.info("Начало работы скрипта______")
 
+    # Объявление основных переменных
     users_url = "https://json.medrating.org/users"
     todos_url = "https://json.medrating.org/todos"
     reports_dir = "tasks"
-    user_reports = Reports(users_url, todos_url, reports_dir)
+    reports_dir_tmp = "tmp"
+
+    # Удаляем директорию для временных файлов
+    if os.path.exists(reports_dir_tmp):
+        os.rmdir(reports_dir_tmp)
+        logging.error("Временная папка удалена до создание отчета")
+
+    # Создаем отчеты во временную директорию
+    user_reports = Reports(users_url, todos_url, reports_dir_tmp)
     user_reports.create_reports()
 
-    logging.info("Конец работы скрипта")
+    # созданные отчеты переносятся в основную директорию
+    for user_id, report in user_reports.users_reports.items():
+        tmp_report = report.file_path
+        report.change_report_dir(reports_dir)
+        if report.is_exists():
+            report.rename_to_old_report()
+        os.replace(tmp_report, report.file_path)
+        logging.info(f"Отчет перенесем {tmp_report} => {report.file_path}")
+
+    # удаляется временная директория
+    os.rmdir(reports_dir_tmp)
+    logging.info("Временная папка удалена")
+
+    logging.info("______Конец работы скрипта")
 
 
 class Report:
@@ -49,6 +71,10 @@ class Report:
 
         self.count = self.count_completed = self.count_uncompleted = 0
         self.count_todos()
+
+    def change_report_dir(self, new_report_dir):
+        self.report_dir = new_report_dir
+        self.file_path = os.path.join(self.report_dir, self.file_name)
 
     def count_todos(self):
         todos = self.todos
@@ -91,15 +117,20 @@ class Report:
         completed_text = self.__create_report_text_todos(True)
         uncompleted_text = self.__create_report_text_todos(False)
 
-        report_text = f'Отчет для {user["company"]["name"]}.\n' \
-                      f'{user["name"]} <{user["email"]}> {report_date}\n' \
-                      f'Всего задач: {self.count}\n' \
-                      f'\n' \
-                      f'Завершённые задачи ({self.count_completed}):\n ' \
-                      f'{completed_text}' \
-                      f'\n' \
-                      f'Оставшиеся задачи ({self.count_uncompleted}):\n ' \
-                      f'{uncompleted_text}'
+        if self.count > 0:
+            report_text = f'Отчет для {user["company"]["name"]}.\n' \
+                          f'{user["name"]} <{user["email"]}> {report_date}\n' \
+                          f'Всего задач: {self.count}\n' \
+                          f'\n' \
+                          f'Завершённые задачи ({self.count_completed}):\n' \
+                          f'{completed_text}' \
+                          f'\n' \
+                          f'Оставшиеся задачи ({self.count_uncompleted}):\n' \
+                          f'{uncompleted_text}'
+        else:
+            report_text = f'Отчет для {user["company"]["name"]}.\n' \
+                          f'{user["name"]} <{user["email"]}> {report_date}\n' \
+                          f'Задач нет\n'
 
         return report_text
 
@@ -124,6 +155,7 @@ class Reports:
         self.reports_dir = reports_dir
         self.users = self.__create_users_dict()
         self.todos = self.__create_todos_dict()
+        self.users_reports = {}
 
     def create_reports(self):
         if not (os.path.exists(self.reports_dir)):
@@ -135,9 +167,8 @@ class Reports:
             new_report = Report(user, todos[user_id], self.reports_dir)
             if new_report.is_exists():
                 new_report.rename_to_old_report()
-                new_report.create_report_file()
-            else:
-                new_report.create_report_file()
+            new_report.create_report_file()
+            self.users_reports[user_id] = new_report
 
     def __create_todos_dict(self) -> dict:
         todos = get_json_from_url(self.todos_url)
